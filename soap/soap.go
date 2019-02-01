@@ -145,18 +145,18 @@ type basicAuth struct {
 }
 
 type options struct {
-	tlsCfg      *tls.Config
-	auth        *basicAuth
-	timeout     time.Duration
-	contimeout  time.Duration
+	tlsCfg           *tls.Config
+	auth             *basicAuth
+	timeout          time.Duration
+	contimeout       time.Duration
 	tlshshaketimeout time.Duration
-	httpHeaders map[string]string
+	httpHeaders      map[string]string
 }
 
 var defaultOptions = options{
-	timeout: time.Duration(30 * time.Second),
-	contimeout: time.Duration(90*time.Second),
-	tlshshaketimeout: time.Duration(15*time.Second),
+	timeout:          time.Duration(30 * time.Second),
+	contimeout:       time.Duration(90 * time.Second),
+	tlshshaketimeout: time.Duration(15 * time.Second),
 }
 
 // A Option sets options such as credentials, tls, etc.
@@ -168,7 +168,6 @@ func WithTLSHandshakeTimeout(t time.Duration) Option {
 		o.tlshshaketimeout = t
 	}
 }
-
 
 // WithRequestTimeout is an Option to set default end-end connection timeout
 func WithRequestTimeout(t time.Duration) Option {
@@ -205,11 +204,17 @@ func WithHTTPHeaders(headers map[string]string) Option {
 	}
 }
 
+//HTTPClient - mockable interface
+type HTTPClient interface {
+	Do(req *http.Request) (*http.Response, error)
+}
+
 // Client is soap client
 type Client struct {
 	url     string
 	opts    *options
 	headers []interface{}
+	HClient HTTPClient
 }
 
 // NewClient creates new SOAP client instance
@@ -218,9 +223,20 @@ func NewClient(url string, opt ...Option) *Client {
 	for _, o := range opt {
 		o(&opts)
 	}
+
+	tr := &http.Transport{
+		TLSClientConfig: opts.tlsCfg,
+		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			d := net.Dialer{Timeout: opts.timeout}
+			return d.DialContext(ctx, network, addr)
+		},
+		TLSHandshakeTimeout: opts.tlshshaketimeout,
+	}
+
 	return &Client{
-		url:  url,
-		opts: &opts,
+		url:     url,
+		opts:    &opts,
+		HClient: &http.Client{Timeout: opts.contimeout, Transport: tr},
 	}
 }
 
@@ -269,17 +285,7 @@ func (s *Client) Call(ctx context.Context, soapAction string, request, response 
 	}
 	req.Close = true
 
-	tr := &http.Transport{
-		TLSClientConfig: s.opts.tlsCfg,
-		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
-			d := net.Dialer{Timeout: s.opts.timeout}
-			return d.DialContext(ctx, network, addr)
-		},
-		TLSHandshakeTimeout: s.opts.tlshshaketimeout,
-	}
-
-	client := &http.Client{Timeout: s.opts.contimeout,Transport: tr,}
-	res, err := client.Do(req)
+	res, err := s.HClient.Do(req)
 	if err != nil {
 		return err
 	}
