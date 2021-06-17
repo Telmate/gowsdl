@@ -150,10 +150,12 @@ type options struct {
 	timeout          time.Duration
 	contimeout       time.Duration
 	tlshshaketimeout time.Duration
+	keepalive        bool
 	httpHeaders      map[string]string
 }
 
 var defaultOptions = options{
+	keepalive:        true,
 	timeout:          time.Duration(30 * time.Second),
 	contimeout:       time.Duration(90 * time.Second),
 	tlshshaketimeout: time.Duration(15 * time.Second),
@@ -194,6 +196,13 @@ func WithTLS(tls *tls.Config) Option {
 func WithTimeout(t time.Duration) Option {
 	return func(o *options) {
 		o.timeout = t
+	}
+}
+
+// WithKeepalive is an Option to set global HTTP headers for all requests
+func WithKeepalive(keepalive bool) Option {
+	return func(o *options) {
+		o.keepalive = keepalive
 	}
 }
 
@@ -283,7 +292,8 @@ func (s *Client) Call(ctx context.Context, soapAction string, request, response 
 			req.Header.Set(k, v)
 		}
 	}
-	req.Close = true
+
+	req.Close = !s.opts.keepalive
 
 	res, err := s.HClient.Do(req)
 	if err != nil {
